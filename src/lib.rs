@@ -2,6 +2,7 @@
 #![crate_type = "lib"]
 
 #![feature(convert)]
+#![cfg_attr(test, feature(static_rwlock))]
 
 #[macro_use]
 extern crate hyper;

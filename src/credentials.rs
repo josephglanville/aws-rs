@@ -30,14 +30,33 @@ impl<'a> Credentials {
         self
     }
 
+    /// Load access and secret keys from environment or config file
+    ///
+    /// Behaviour is as follows:
+    /// 1. If environment variable is present, use that.
+    /// 2. Otherwise, use the profile:
+    /// 2.1. If profile is set, use that.
+    /// 2.2. Otherwise use default profile.
+    ///
+    /// Behaviour is copied from boto.
     pub fn load(mut self) -> Credentials {
-        let conf = Ini::load_from_file(&self.path).unwrap();
-        let section = conf.section(Some(&self.profile)).unwrap();
-        let key = section.get("aws_access_key_id").unwrap();
-        let secret = section.get("aws_secret_access_key").unwrap();
+        if let Ok(conf) = Ini::load_from_file(&self.path) {
+            if let Some(section) = conf.section(Some(&self.profile)) {
+                if let Some(key) = section.get("aws_access_key_id") {
+                    self.key = Some(key.to_string())
+                };
+                if let Some(secret) = section.get("aws_secret_access_key") {
+                    self.secret = Some(secret.to_string())
+                }
+            }
+        };
+        if let Ok(key) = env::var("AWS_ACCESS_KEY_ID") {
+            self.key = Some(key.to_string())
+        };
 
-        self.key = Some(key.to_string());
-        self.secret = Some(secret.to_string());
+        if let Ok(secret) = env::var("AWS_SECRET_ACCESS_KEY") {
+            self.secret = Some(secret.to_string())
+        };
         self
     }
 }
@@ -73,21 +92,36 @@ fn get_absolute_path(val: &str) -> String {
 #[cfg(test)]
 mod test {
     use super::Credentials;
+    use std::env;
+
+    // Tests depend on Credentials being resolved correctly. Since they are
+    // executed in parallel, the explicit environment tests can mess up
+    // other tests running at the same time.
+    //
+    // * Write lock needs to be acquired if the tests are changing environment
+    //   variables.
+    // * Read lock needs to be acquired if tests depend on environment
+    //   variables (but do not change them).
+    use std::sync::{StaticRwLock, RW_LOCK_INIT};
+    static LOCK: StaticRwLock = RW_LOCK_INIT;
 
     #[test]
     fn test_defaults() {
+        let _g = LOCK.read().unwrap();
         let cred = Credentials::new().path("/my/credentials/file");
         assert_eq!(cred.path, "/my/credentials/file")
     }
 
     #[test]
     fn test_profile() {
+        let _g = LOCK.read().unwrap();
         let cred = Credentials::new().profile("new");
         assert_eq!(cred.profile, "new")
     }
 
     #[test]
     fn test_load_default() {
+        let _g = LOCK.read().unwrap();
         // the path is relative from where cargo is running, so the root of the project
         let cred = Credentials::new().path("fixtures/credentials.ini").load();
         assert_eq!(cred.key.unwrap(), "12345")
@@ -95,7 +129,30 @@ mod test {
 
     #[test]
     fn test_load_specific() {
+        let _g = LOCK.read().unwrap();
         let cred = Credentials::new().path("fixtures/credentials.ini").profile("first").load();
         assert_eq!(cred.key.unwrap(), "zxspectrum")
+    }
+
+    #[test]
+    fn test_env_first_success() {
+        let _g = LOCK.write().unwrap();
+        env::set_var("AWS_ACCESS_KEY_ID", "envaccess");
+        env::set_var("AWS_SECRET_ACCESS_KEY", "envsecret");
+        let cred = Credentials::new().path("fixtures/credentials.ini").load();
+        env::remove_var("AWS_ACCESS_KEY_ID");
+        env::remove_var("AWS_SECRET_ACCESS_KEY");
+        assert_eq!(cred.key.unwrap(), "envaccess");
+        assert_eq!(cred.secret.unwrap(), "envsecret");
+    }
+
+    #[test]
+    fn test_env_first_fail() {
+        let _g = LOCK.write().unwrap();
+        env::set_var("AWS_SECRET_ACCESS_KEY", "envsecret");
+        let cred = Credentials::new().path("fixtures/credentials.ini").load();
+        env::remove_var("AWS_SECRET_ACCESS_KEY");
+        assert_eq!(cred.key.unwrap(), "12345");
+        assert_eq!(cred.secret.unwrap(), "envsecret")
     }
 }
