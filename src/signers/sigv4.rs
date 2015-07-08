@@ -88,6 +88,16 @@ impl<'a> SigV4 {
         self
     }
 
+    fn token(mut self) -> SigV4 {
+        match self.credentials.clone().unwrap().token {
+            Some(token) => {
+                append_header(&mut self.headers, "x-amz-security-token", token.as_ref());
+                self
+            },
+            None => self
+        }
+    }
+
     fn date(mut self) -> SigV4 {
         append_header(&mut self.headers, "x-amz-date",
                       self.date.strftime("%Y%m%dT%H%M%SZ").unwrap().to_string().as_ref());
@@ -109,7 +119,7 @@ impl<'a> SigV4 {
     }
 
     pub fn as_headers(self) -> Headers {
-        let fin = self.date().authorization();
+        let fin = self.date().token().authorization();
         let mut headers = Headers::new();
 
         for h in fin.headers {

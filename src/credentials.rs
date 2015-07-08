@@ -6,6 +6,7 @@ use std::env;
 pub struct Credentials {
     pub key: Option<String>,
     pub secret: Option<String>,
+    pub token: Option<String>,
     path: String,
     profile: String,
 }
@@ -15,6 +16,7 @@ impl<'a> Credentials {
         Credentials{
             key: None,
             secret: None,
+            token: None,
             path: get_profile_path(),
             profile: get_default_profile(),
         }
@@ -60,6 +62,15 @@ impl<'a> Credentials {
             _ => {
                 let secret = section.get("aws_secret_access_key").unwrap();
                 self.secret = Some(secret.to_string());
+            }
+        };
+        match env::var("AWS_SESSION_TOKEN") {
+            Ok(token) => {
+                self.token = Some(token.to_string());
+            },
+            _ => {
+                let token = section.get("aws_security_token").unwrap();
+                self.token = Some(token.to_string());
             }
         };
         self
